@@ -3,10 +3,10 @@
 A simple command-line interface (CLI) task manager application built with Go and Cobra. This application allows users to manage their tasks efficiently through a set of commands.
 
 ## ✨ Features
-- ➕ Add new tasks
-- 📋 List all tasks
-- ✅ Mark tasks as completed
-- 💾 Persistent storage of tasks in a JSON file
+- ➕ Add new tasks.
+- 📋 List all tasks.
+- ✅ Mark tasks as completed.
+- 💾 Persistent storage of tasks in a JSON file.
 - Clear all tasks when needed.
 
 ## 🚀 Installation
