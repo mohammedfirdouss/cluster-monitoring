@@ -1,0 +1,178 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+data:
+  cluster-alerts.yml: |
+    groups:
+      # =============================================
+      # Node-level alerts
+      # =============================================
+      - name: node-alerts
+        rules:
+          - alert: NodeHighCPU
+            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High CPU usage on {{ $labels.instance }}"
+              description: "CPU usage is above 80% for more than 5 minutes (current: {{ $value | printf \"%.1f\" }}%)."
+
+          - alert: NodeCriticalCPU
+            expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Critical CPU usage on {{ $labels.instance }}"
+              description: "CPU usage is above 95% for more than 2 minutes (current: {{ $value | printf \"%.1f\" }}%)."
+
+          - alert: NodeHighMemory
+            expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High memory usage on {{ $labels.instance }}"
+              description: "Memory usage is above 85% for more than 5 minutes (current: {{ $value | printf \"%.1f\" }}%)."
+
+          - alert: NodeDiskSpaceLow
+            expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 > 85
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Low disk space on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+              description: "Disk usage is above 85% (current: {{ $value | printf \"%.1f\" }}%)."
+
+          - alert: NodeDiskSpaceCritical
+            expr: (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 > 95
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Critical disk space on {{ $labels.instance }} ({{ $labels.mountpoint }})"
+              description: "Disk usage is above 95% (current: {{ $value | printf \"%.1f\" }}%)."
+
+          - alert: NodeNotReady
+            expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Node {{ $labels.node }} is not ready"
+              description: "Node has been in NotReady state for more than 2 minutes."
+
+      # =============================================
+      # Pod-level alerts
+      # =============================================
+      - name: pod-alerts
+        rules:
+          - alert: PodCrashLooping
+            expr: rate(kube_pod_container_status_restarts_total[15m]) * 60 * 15 > 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
+              description: "Pod has been restarting frequently over the last 15 minutes."
+
+          - alert: PodNotReady
+            expr: kube_pod_status_ready{condition="true"} == 0
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} is not ready"
+              description: "Pod has been in a non-ready state for more than 10 minutes."
+
+          - alert: ContainerOOMKilled
+            expr: kube_pod_container_status_last_terminated_reason{reason="OOMKilled"} == 1
+            for: 0m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Container {{ $labels.container }} in {{ $labels.namespace }}/{{ $labels.pod }} was OOM-killed"
+              description: "Container was terminated due to out-of-memory condition."
+
+          - alert: PodHighCPUUsage
+            expr: sum(rate(container_cpu_usage_seconds_total{container!="POD",container!=""}[5m])) by (namespace, pod) / sum(kube_pod_container_resource_limits{resource="cpu",container!="POD",container!=""}) by (namespace, pod) * 100 > 90
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has high CPU usage"
+              description: "Pod is using more than 90% of its CPU limit (current: {{ $value | printf \"%.1f\" }}%)."
+
+          - alert: PodHighMemoryUsage
+            expr: sum(container_memory_working_set_bytes{container!="POD",container!=""}) by (namespace, pod) / sum(kube_pod_container_resource_limits{resource="memory",container!="POD",container!=""}) by (namespace, pod) * 100 > 90
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has high memory usage"
+              description: "Pod is using more than 90% of its memory limit (current: {{ $value | printf \"%.1f\" }}%)."
+
+      # =============================================
+      # Deployment-level alerts
+      # =============================================
+      - name: deployment-alerts
+        rules:
+          - alert: DeploymentReplicasMismatch
+            expr: kube_deployment_spec_replicas != kube_deployment_status_ready_replicas
+            for: 10m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has replica mismatch"
+              description: "Expected {{ $value }} replicas but not all are ready for more than 10 minutes."
+
+          - alert: DeploymentGenerationMismatch
+            expr: kube_deployment_status_observed_generation != kube_deployment_metadata_generation
+            for: 10m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} generation mismatch"
+              description: "Deployment rollout has not succeeded for more than 10 minutes."
+
+      # =============================================
+      # Persistent Volume alerts
+      # =============================================
+      - name: persistent-volume-alerts
+        rules:
+          - alert: PVCAlmostFull
+            expr: kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes * 100 > 85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "PVC {{ $labels.namespace }}/{{ $labels.persistentvolumeclaim }} is almost full"
+              description: "PVC is {{ $value | printf \"%.1f\" }}% full."
+
+      # =============================================
+      # Prometheus self-monitoring
+      # =============================================
+      - name: prometheus-alerts
+        rules:
+          - alert: PrometheusTargetDown
+            expr: up == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} is down"
+              description: "Target has been unreachable for more than 5 minutes."
+
+          - alert: PrometheusConfigReloadFailed
+            expr: prometheus_config_last_reload_successful == 0
+            for: 5m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Prometheus config reload failed"
+              description: "The last Prometheus configuration reload attempt failed."
